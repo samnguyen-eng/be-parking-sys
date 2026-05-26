@@ -1,0 +1,6 @@
+spring:
+  cloud:
+    gcp:
+      credentials:
+        enabled: true
+      project-id: ${GCP_PROJECT_ID}

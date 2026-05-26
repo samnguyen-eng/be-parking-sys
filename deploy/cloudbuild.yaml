@@ -1,0 +1,143 @@
+# Cloud Build CI/CD — builds and deploys all 3 services to Cloud Run
+#
+# Usage:
+#   gcloud builds submit --config deploy/cloudbuild.yaml \
+#     --substitutions _PROJECT_ID=my-gcp-project .
+#
+# Required IAM roles on the Cloud Build service account:
+#   - roles/run.admin
+#   - roles/artifactregistry.writer
+#   - roles/iam.serviceAccountUser
+
+substitutions:
+  _REGION: asia-southeast1
+  _REGISTRY: asia-southeast1-docker.pkg.dev
+  _PROJECT_ID: ${PROJECT_ID}
+  _REPO: parking-repo
+
+steps:
+  # ── parking-api ──────────────────────────────────────────────────────────────
+  - id: build-parking-api
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - parking-api/Dockerfile
+      - -t
+      - $_REGISTRY/$_PROJECT_ID/$_REPO/parking-api:$SHORT_SHA
+      - .
+
+  - id: push-parking-api
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - $_REGISTRY/$_PROJECT_ID/$_REPO/parking-api:$SHORT_SHA
+    waitFor:
+      - build-parking-api
+
+  - id: deploy-parking-api
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - parking-api
+      - --image=$_REGISTRY/$_PROJECT_ID/$_REPO/parking-api:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --no-allow-unauthenticated
+      - --port=8080
+      - --min-instances=1
+      - --max-instances=10
+      - --memory=1Gi
+      - --cpu=2
+      - --set-env-vars=LOCAL_MODE=false,GCP_PROJECT_ID=$_PROJECT_ID
+    waitFor:
+      - push-parking-api
+
+  # ── parking-outbox ────────────────────────────────────────────────────────────
+  - id: build-parking-outbox
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - parking-outbox/Dockerfile
+      - -t
+      - $_REGISTRY/$_PROJECT_ID/$_REPO/parking-outbox:$SHORT_SHA
+      - .
+
+  - id: push-parking-outbox
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - $_REGISTRY/$_PROJECT_ID/$_REPO/parking-outbox:$SHORT_SHA
+    waitFor:
+      - build-parking-outbox
+
+  - id: deploy-parking-outbox
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - parking-outbox
+      - --image=$_REGISTRY/$_PROJECT_ID/$_REPO/parking-outbox:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --no-allow-unauthenticated
+      - --port=8081
+      - --min-instances=1
+      - --max-instances=1
+      - --memory=512Mi
+      - --cpu=1
+      - --set-env-vars=LOCAL_MODE=false,GCP_PROJECT_ID=$_PROJECT_ID
+    waitFor:
+      - push-parking-outbox
+
+  # ── parking-worker ────────────────────────────────────────────────────────────
+  - id: build-parking-worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - parking-worker/Dockerfile
+      - -t
+      - $_REGISTRY/$_PROJECT_ID/$_REPO/parking-worker:$SHORT_SHA
+      - .
+
+  - id: push-parking-worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - $_REGISTRY/$_PROJECT_ID/$_REPO/parking-worker:$SHORT_SHA
+    waitFor:
+      - build-parking-worker
+
+  - id: deploy-parking-worker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - parking-worker
+      - --image=$_REGISTRY/$_PROJECT_ID/$_REPO/parking-worker:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --no-allow-unauthenticated
+      - --port=8082
+      - --min-instances=1
+      - --max-instances=5
+      - --memory=768Mi
+      - --cpu=1
+      - --set-env-vars=LOCAL_MODE=false,GCP_PROJECT_ID=$_PROJECT_ID
+    waitFor:
+      - push-parking-worker
+
+images:
+  - $_REGISTRY/$_PROJECT_ID/$_REPO/parking-api:$SHORT_SHA
+  - $_REGISTRY/$_PROJECT_ID/$_REPO/parking-outbox:$SHORT_SHA
+  - $_REGISTRY/$_PROJECT_ID/$_REPO/parking-worker:$SHORT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8

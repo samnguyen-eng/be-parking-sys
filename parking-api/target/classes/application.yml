@@ -1,0 +1,67 @@
+spring:
+  application:
+    name: parking-api
+
+  profiles:
+    active: local
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:parking_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      pool-name: ParkingHikariPool
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        default_schema: public
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+
+server:
+  port: ${PORT:8080}
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+
+# Redis / Redisson config
+redis:
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  password: ${REDIS_PASSWORD:}
+  use-tls: ${REDIS_TLS:false}
+
+# JWT config
+app:
+  jwt:
+    secret: ${JWT_SECRET:ThisIsAVeryLongSecretKeyForLocalDevelopmentAtLeast256BitsLong!}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}  # 24h
+  parking:
+    total-spaces: 80
+    price-per-day: 10.00
+    reservation-open-hour: 20  # 20:00
+    lock-ttl-seconds: 10
+  local-mode: true  # Dùng mock thay vì GCP services
+
+logging:
+  level:
+    com.parking: DEBUG
+    org.springframework.security: INFO
+    org.flywaydb: INFO
