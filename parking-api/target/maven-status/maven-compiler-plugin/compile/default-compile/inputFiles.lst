@@ -5,6 +5,7 @@
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/controller/AuthController.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/controller/DepositController.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/controller/ParkingController.java
+/Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/controller/UserController.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/dto/request/DepositRequest.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/dto/request/LoginRequest.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/dto/request/RegisterRequest.java
@@ -15,6 +16,8 @@
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/dto/response/DepositResponse.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/dto/response/ParkingSpaceResponse.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/dto/response/ReserveResponse.java
+/Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/dto/response/UserInfoResponse.java
+/Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/dto/response/UserReservationResponse.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/entity/Account.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/entity/OutboxEvent.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/entity/OutboxStatus.java
@@ -37,3 +40,4 @@
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/service/DepositService.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/service/JwtService.java
 /Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/service/ParkingService.java
+/Users/vnipco900217/Documents/ProbationProject/Git/be-parking-sys/parking-api/src/main/java/com/parking/api/service/UserInfoService.java

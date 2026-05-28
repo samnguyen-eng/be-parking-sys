@@ -28,8 +28,32 @@ public class ParkingSpace {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "created_by", nullable = false, updatable = false, length = 100)
+    @Builder.Default
+    private String createdBy = "system";
+
+    @Column(name = "updated_by", nullable = false, length = 100)
+    @Builder.Default
+    private String updatedBy = "system";
+
+    @Column(name = "is_deleted", nullable = false)
+    @Builder.Default
+    private boolean isDeleted = false;
+
+    @PrePersist
+    protected void onCreate() {
+        this.updatedAt = LocalDateTime.now();
+        if (this.createdBy == null || this.createdBy.isBlank()) {
+            this.createdBy = "system";
+        }
+        this.updatedBy = this.createdBy;
+    }
+
     @PreUpdate
     protected void onUpdate() {
         this.updatedAt = LocalDateTime.now();
+        if (this.updatedBy == null || this.updatedBy.isBlank()) {
+            this.updatedBy = "system";
+        }
     }
 }

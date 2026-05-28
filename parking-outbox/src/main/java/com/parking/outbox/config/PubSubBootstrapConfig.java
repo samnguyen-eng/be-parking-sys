@@ -25,8 +25,16 @@ public class PubSubBootstrapConfig {
     @Value("${app.pubsub.subscription:reservation-created-sub}")
     private String subscription;
 
+    @Value("${app.pubsub.bootstrap-enabled:true}")
+    private boolean bootstrapEnabled;
+
     @EventListener(ApplicationReadyEvent.class)
     public void ensureTopicAndSubscription() {
+        if (!bootstrapEnabled) {
+            log.info("Pub/Sub bootstrap is disabled by app.pubsub.bootstrap-enabled=false");
+            return;
+        }
+
         String topicName = String.format("projects/%s/topics/%s", projectId, topic);
         String subscriptionName = String.format("projects/%s/subscriptions/%s", projectId, subscription);
 
@@ -40,6 +48,8 @@ public class PubSubBootstrapConfig {
             log.info("Created Pub/Sub topic {}", topicName);
         } catch (AlreadyExistsException ex) {
             log.info("Pub/Sub topic already exists {}", topicName);
+        } catch (Exception ex) {
+            log.warn("Failed to create Pub/Sub topic {}. Continue startup without bootstrap.", topicName, ex);
         }
     }
 
@@ -49,6 +59,13 @@ public class PubSubBootstrapConfig {
             log.info("Created Pub/Sub subscription {} -> {}", subscriptionName, topicName);
         } catch (AlreadyExistsException ex) {
             log.info("Pub/Sub subscription already exists {}", subscriptionName);
+        } catch (Exception ex) {
+            log.warn(
+                    "Failed to create Pub/Sub subscription {} for topic {}. Continue startup without bootstrap.",
+                    subscriptionName,
+                    topicName,
+                    ex
+            );
         }
     }
 }

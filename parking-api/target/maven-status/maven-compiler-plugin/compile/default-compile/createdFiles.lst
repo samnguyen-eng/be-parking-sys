@@ -4,6 +4,7 @@ com/parking/api/ParkingApiApplication.class
 com/parking/api/controller/AuthController.class
 com/parking/api/dto/response/ApiResponse.class
 com/parking/api/entity/Account.class
+com/parking/api/dto/response/UserInfoResponse.class
 com/parking/api/dto/request/RegisterRequest.class
 com/parking/api/repository/AccountRepository.class
 com/parking/api/repository/ReservationRepository.class
@@ -17,6 +18,7 @@ com/parking/api/exception/ResourceNotFoundException.class
 com/parking/api/entity/User.class
 com/parking/api/entity/Reservation.class
 com/parking/api/service/DepositService.class
+com/parking/api/dto/response/UserInfoResponse$UserInfoResponseBuilder.class
 com/parking/api/entity/ParkingSpaceStatus.class
 com/parking/api/dto/response/AuthResponse$AuthResponseBuilder.class
 com/parking/api/controller/ParkingController.class
@@ -29,6 +31,7 @@ com/parking/api/dto/request/DepositRequest.class
 com/parking/api/repository/UserRepository.class
 com/parking/api/service/ParkingService.class
 com/parking/api/service/AuthService.class
+com/parking/api/controller/UserController.class
 com/parking/api/entity/Reservation$ReservationBuilder.class
 com/parking/api/dto/response/ReserveResponse.class
 com/parking/api/config/RedisConfig.class
@@ -38,12 +41,15 @@ com/parking/api/exception/GlobalExceptionHandler.class
 com/parking/api/config/JacksonConfig.class
 com/parking/api/service/JwtService.class
 com/parking/api/dto/response/ApiResponse$ApiResponseBuilder.class
+com/parking/api/dto/response/UserReservationResponse.class
 com/parking/api/exception/BusinessException.class
 com/parking/api/dto/response/ParkingSpaceResponse$ParkingSpaceResponseBuilder.class
 com/parking/api/entity/ParkingSpace$ParkingSpaceBuilder.class
 com/parking/api/dto/response/ReserveResponse$ReserveResponseBuilder.class
 com/parking/api/entity/OutboxStatus.class
 com/parking/api/dto/request/ReserveRequest.class
+com/parking/api/dto/response/UserReservationResponse$UserReservationResponseBuilder.class
+com/parking/api/service/UserInfoService.class
 com/parking/api/dto/response/BalanceResponse.class
 com/parking/api/dto/response/BalanceResponse$BalanceResponseBuilder.class
 com/parking/api/dto/response/ParkingSpaceResponse.class

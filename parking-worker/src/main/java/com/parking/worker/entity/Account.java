@@ -43,4 +43,16 @@ public class Account {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    @Column(name = "created_by", nullable = false, updatable = false, length = 100)
+    @Builder.Default
+    private String createdBy = "system";
+
+    @Column(name = "updated_by", nullable = false, length = 100)
+    @Builder.Default
+    private String updatedBy = "system";
+
+    @Column(name = "is_deleted", nullable = false)
+    @Builder.Default
+    private boolean isDeleted = false;
 }

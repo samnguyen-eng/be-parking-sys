@@ -15,7 +15,7 @@ RUN mvn -pl parking-api -am dependency:go-offline -q
 
 # Copy source and build
 COPY parking-api/src parking-api/src
-RUN mvn -pl parking-api -am package -DskipTests -q
+RUN mvn -pl parking-api -am package spring-boot:repackage -DskipTests -q
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM eclipse-temurin:21-jre-jammy

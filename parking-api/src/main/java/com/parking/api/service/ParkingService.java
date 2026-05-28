@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parking.api.dto.request.ReserveRequest;
 import com.parking.api.dto.response.ParkingSpaceResponse;
 import com.parking.api.dto.response.ReserveResponse;
+import com.parking.api.dto.response.UserReservationResponse;
 import com.parking.api.entity.*;
 import com.parking.api.exception.BusinessException;
 import com.parking.api.exception.ResourceNotFoundException;
@@ -15,17 +16,22 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RBucket;
 import org.redisson.api.RedissonClient;
+import org.redisson.api.RScoredSortedSet;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -34,10 +40,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ParkingService {
 
-    private static final String RESERVE_LOCK_KEY = "parking:reserve:lock";
+    private static final String RESERVE_LOCK_KEY_PATTERN = "parking:reserve:space:%d:%s";
     private static final String SPACES_CACHE_KEY = "parking:spaces:all";
+    private static final String AVAILABLE_SLOTS_KEY = "parking:spaces:available";
     private static final long SPACES_CACHE_TTL_SECONDS = 30L;
     private static final BigDecimal PRICE_PER_DAY = new BigDecimal("10.00");
+    private static final long RESERVATION_HOLD_HOURS = 24L;
 
     private final RedissonClient redissonClient;
     private final ReservationRepository reservationRepository;
@@ -79,69 +87,74 @@ public class ParkingService {
                 ? request.getReservationDate()
                 : LocalDate.now();
 
-        // 2. Check duplicate reservation for the same date
-        if (reservationRepository.existsByUserIdAndReservationDate(userId, reservationDate)) {
-            throw new BusinessException("You already have a reservation for " + reservationDate);
-        }
-
-        // Load user
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
-
-        // Resolve plate number (request override > user profile)
-        String plateNumber = (request.getPlateNumber() != null && !request.getPlateNumber().isBlank())
-                ? request.getPlateNumber().toUpperCase()
-                : user.getPlateNumber();
-
-        // 3. Deduct balance with pessimistic lock
-        Account account = accountRepository.findByUserIdForUpdate(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Account not found for userId: " + userId));
-
-        if (account.getBalance().compareTo(PRICE_PER_DAY) < 0) {
-            throw new BusinessException(
-                    "Insufficient balance. Required: $" + PRICE_PER_DAY
-                    + ", Available: $" + account.getBalance());
-        }
-        account.setBalance(account.getBalance().subtract(PRICE_PER_DAY));
-        accountRepository.save(account);
-        log.debug("Deducted ${}. Remaining balance: {} for userId={}", PRICE_PER_DAY, account.getBalance(), userId);
-
-        // 4. Acquire Redisson distributed lock
-        RLock lock = redissonClient.getLock(RESERVE_LOCK_KEY);
+        // 2. Acquire Redisson distributed lock first
+        String lockKey = String.format(RESERVE_LOCK_KEY_PATTERN, request.getSpaceId(), reservationDate);
+        RLock lock = redissonClient.getLock(lockKey);
         boolean locked = false;
         Reservation savedReservation;
+        Account account;
+        ParkingSpace selectedSpace;
 
         try {
             locked = lock.tryLock(lockTtlSeconds, lockTtlSeconds, TimeUnit.SECONDS);
             if (!locked) {
-                rollbackBalance(account, PRICE_PER_DAY);
                 throw new BusinessException("System is busy, please try again shortly.",
                         HttpStatus.SERVICE_UNAVAILABLE);
             }
 
-            // 5. Find first available space (PESSIMISTIC_WRITE inside distributed lock)
-            ParkingSpace space = parkingSpaceRepository.findFirstAvailable()
-                    .orElseThrow(() -> {
-                        rollbackBalance(account, PRICE_PER_DAY);
-                        return new BusinessException("No parking spaces available at this time.", HttpStatus.CONFLICT);
-                    });
+            // 3. Check duplicate again while holding distributed lock
+            if (reservationRepository.existsByUserIdAndReservationDate(userId, reservationDate)) {
+                throw new BusinessException("You already have a reservation for " + reservationDate);
+            }
 
-            // Mark space RESERVED
-            space.setStatus(ParkingSpaceStatus.RESERVED);
-            parkingSpaceRepository.save(space);
+            // Load user
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+            // Resolve plate number (request override > user profile)
+            String plateNumber = (request.getPlateNumber() != null && !request.getPlateNumber().isBlank())
+                    ? request.getPlateNumber().toUpperCase()
+                    : user.getPlateNumber();
+
+            // 4. Deduct balance with pessimistic lock
+            account = accountRepository.findByUserIdForUpdate(userId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Account not found for userId: " + userId));
+
+            if (account.getBalance().compareTo(PRICE_PER_DAY) < 0) {
+                throw new BusinessException(
+                        "Insufficient balance. Required: $" + PRICE_PER_DAY
+                                + ", Available: $" + account.getBalance());
+            }
+            account.setBalance(account.getBalance().subtract(PRICE_PER_DAY));
+            accountRepository.save(account);
+            log.debug("Deducted ${}. Remaining balance: {} for userId={}", PRICE_PER_DAY, account.getBalance(), userId);
+
+            // 5. Lock exactly the requested slot and reserve it
+            selectedSpace = parkingSpaceRepository.findByIdForUpdate(request.getSpaceId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Parking space not found: " + request.getSpaceId()));
+            if (selectedSpace.getStatus() != ParkingSpaceStatus.AVAILABLE) {
+                throw new BusinessException("Selected space is no longer available.", HttpStatus.CONFLICT);
+            }
+            selectedSpace.setStatus(ParkingSpaceStatus.RESERVED);
+            parkingSpaceRepository.save(selectedSpace);
+
+            // Best-effort cache update only; DB lock above is the source of truth.
+            RScoredSortedSet<Long> availableSlots = redissonClient.getScoredSortedSet(AVAILABLE_SLOTS_KEY);
+            availableSlots.remove(selectedSpace.getId());
 
             // 7. Create Reservation (status = PENDING)
             Reservation reservation = Reservation.builder()
                     .user(user)
-                    .space(space)
+                    .space(selectedSpace)
                     .reservationDate(reservationDate)
                     .status(ReservationStatus.PENDING)
                     .amount(PRICE_PER_DAY)
+                    .expiresAt(LocalDateTime.now().plusHours(RESERVATION_HOLD_HOURS))
                     .build();
             savedReservation = reservationRepository.save(reservation);
 
             // 8. Create OutboxEvent for downstream processing
-            String payload = buildPayload(savedReservation.getId(), userId, space.getId(), plateNumber);
+            String payload = buildPayload(savedReservation.getId(), userId, selectedSpace.getId(), plateNumber);
             OutboxEvent outboxEvent = OutboxEvent.builder()
                     .aggregateType("RESERVATION")
                     .aggregateId(savedReservation.getId())
@@ -154,16 +167,22 @@ public class ParkingService {
             invalidateSpacesCache();
 
             log.info("Reservation created: reservationId={}, space={}, userId={}",
-                    savedReservation.getId(), space.getSpaceNumber(), userId);
+                    savedReservation.getId(), selectedSpace.getSpaceNumber(), userId);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            rollbackBalance(account, PRICE_PER_DAY);
             throw new BusinessException("Reservation was interrupted. Please try again.");
+        } catch (DataIntegrityViolationException ex) {
+            String message = ex.getMostSpecificCause() != null
+                    ? ex.getMostSpecificCause().getMessage()
+                    : ex.getMessage();
+            if (message != null && message.contains("uq_space_date_active")) {
+                throw new BusinessException("Selected space is already reserved for " + reservationDate, HttpStatus.CONFLICT);
+            }
+            throw new BusinessException("You already have a reservation for " + reservationDate);
         } catch (BusinessException ex) {
             throw ex;
         } catch (Exception ex) {
-            rollbackBalance(account, PRICE_PER_DAY);
             log.error("Unexpected error during reservation for userId={}", userId, ex);
             throw new BusinessException("Reservation failed due to an unexpected error.");
         } finally {
@@ -207,23 +226,40 @@ public class ParkingService {
         return response;
     }
 
+    @Transactional(readOnly = true)
+    public List<UserReservationResponse> getMyReservations(Long userId) {
+        return reservationRepository.findByUserIdWithSpace(userId)
+                .stream()
+                .map(reservation -> UserReservationResponse.builder()
+                        .id(reservation.getId())
+                        .spaceId(reservation.getSpace() != null ? reservation.getSpace().getId() : null)
+                        .spaceNumber(reservation.getSpace() != null ? reservation.getSpace().getSpaceNumber() : null)
+                        .status(reservation.getStatus().name())
+                        .reservationDate(reservation.getReservationDate())
+                        .amount(reservation.getAmount())
+                        .expiresAt(reservation.getExpiresAt())
+                        .build())
+                .toList();
+    }
+
     private List<ParkingSpaceResponse> loadSpacesFromDb() {
         List<ParkingSpace> spaces = parkingSpaceRepository.findAllByOrderBySpaceNumberAsc();
 
-        // Build spaceId -> last-3-digits-of-plate map from today's active reservations
-        Map<Long, String> spaceToPlate = reservationRepository
-                .findActiveByReservationDate(LocalDate.now())
-                .stream()
-                .filter(r -> r.getSpace() != null && r.getUser() != null)
-                .collect(Collectors.toMap(
-                        r -> r.getSpace().getId(),
-                        r -> {
-                            String plate = r.getUser().getPlateNumber();
-                            if (plate == null || plate.isBlank()) return "???";
-                            return plate.length() >= 3 ? plate.substring(plate.length() - 3) : plate;
-                        },
-                        (existing, replacement) -> existing  // keep first on duplicate
-                ));
+        List<Long> reservedSpaceIds = spaces.stream()
+                .filter(space -> space.getStatus() == ParkingSpaceStatus.RESERVED)
+                .map(ParkingSpace::getId)
+                .toList();
+
+        Map<Long, String> spaceToPlate = reservedSpaceIds.isEmpty()
+                ? Map.of()
+                : reservationRepository.findLatestActiveBySpaceIds(reservedSpaceIds)
+                        .stream()
+                        .filter(r -> r.getSpace() != null && r.getUser() != null)
+                        .collect(Collectors.toMap(
+                                r -> r.getSpace().getId(),
+                                r -> maskPlateNumber(r.getUser().getPlateNumber()),
+                                (existing, replacement) -> existing
+                        ));
 
         return spaces.stream()
                 .map(space -> ParkingSpaceResponse.builder()
@@ -231,7 +267,7 @@ public class ParkingService {
                         .spaceNumber(space.getSpaceNumber())
                         .status(space.getStatus().name())
                         .occupantPlate(space.getStatus() == ParkingSpaceStatus.RESERVED
-                                ? spaceToPlate.get(space.getId())
+                                ? spaceToPlate.getOrDefault(space.getId(), "*****")
                                 : null)
                         .build())
                 .collect(Collectors.toList());
@@ -240,19 +276,6 @@ public class ParkingService {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
-    private void rollbackBalance(Account account, BigDecimal amount) {
-        try {
-            Account fresh = accountRepository.findByUserIdForUpdate(account.getUser().getId())
-                    .orElse(account);
-            fresh.setBalance(fresh.getBalance().add(amount));
-            accountRepository.save(fresh);
-            log.warn("Rolled back ${}  for userId={}", amount, account.getUser().getId());
-        } catch (Exception e) {
-            log.error("CRITICAL: failed to rollback ${}  for userId={}: {}",
-                    amount, account.getUser().getId(), e.getMessage());
-        }
-    }
-
     private String buildPayload(Long reservationId, Long userId, Long spaceId, String plateNumber) {
         try {
             Map<String, Object> map = new HashMap<>();
@@ -269,5 +292,28 @@ public class ParkingService {
 
     private void invalidateSpacesCache() {
         redissonClient.getBucket(SPACES_CACHE_KEY).delete();
+    }
+
+    private void hydrateAvailableSlotsCache(RScoredSortedSet<Long> availableSlots) {
+        List<Long> availableIds = parkingSpaceRepository.findAvailableSpaceIds();
+        if (availableIds.isEmpty()) {
+            return;
+        }
+        Set<Long> uniqueOrderedIds = new LinkedHashSet<>(availableIds);
+        for (Long id : uniqueOrderedIds) {
+            availableSlots.add(id.doubleValue(), id);
+        }
+        availableSlots.expire(60, TimeUnit.SECONDS);
+    }
+
+    private String maskPlateNumber(String plateNumber) {
+        if (plateNumber == null || plateNumber.isBlank()) {
+            return "*****";
+        }
+        String normalized = plateNumber.trim().toUpperCase();
+        if (normalized.length() <= 3) {
+            return "*****" + normalized;
+        }
+        return "*****" + normalized.substring(normalized.length() - 3);
     }
 }

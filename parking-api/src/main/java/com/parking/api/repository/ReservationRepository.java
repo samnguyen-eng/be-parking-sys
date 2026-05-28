@@ -27,4 +27,23 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
            "WHERE r.reservationDate = :date " +
            "AND r.status <> com.parking.api.entity.ReservationStatus.CANCELLED")
     List<Reservation> findActiveByReservationDate(@Param("date") LocalDate date);
+
+    @Query("SELECT r FROM Reservation r " +
+           "LEFT JOIN FETCH r.space s " +
+           "WHERE r.user.id = :userId " +
+           "ORDER BY r.createdAt DESC")
+    List<Reservation> findByUserIdWithSpace(@Param("userId") Long userId);
+
+    @Query("SELECT r FROM Reservation r " +
+           "JOIN FETCH r.user u " +
+           "JOIN FETCH r.space s " +
+           "WHERE s.id IN :spaceIds " +
+           "AND r.status <> com.parking.api.entity.ReservationStatus.CANCELLED " +
+           "AND r.id IN (" +
+           "  SELECT MAX(r2.id) FROM Reservation r2 " +
+           "  WHERE r2.space.id IN :spaceIds " +
+           "  AND r2.status <> com.parking.api.entity.ReservationStatus.CANCELLED " +
+           "  GROUP BY r2.space.id" +
+           ")")
+    List<Reservation> findLatestActiveBySpaceIds(@Param("spaceIds") List<Long> spaceIds);
 }

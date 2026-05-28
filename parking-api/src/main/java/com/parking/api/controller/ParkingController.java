@@ -4,6 +4,7 @@ import com.parking.api.dto.request.ReserveRequest;
 import com.parking.api.dto.response.ApiResponse;
 import com.parking.api.dto.response.ParkingSpaceResponse;
 import com.parking.api.dto.response.ReserveResponse;
+import com.parking.api.dto.response.UserReservationResponse;
 import com.parking.api.exception.BusinessException;
 import com.parking.api.repository.UserRepository;
 import com.parking.api.service.ParkingService;
@@ -36,6 +37,15 @@ public class ParkingController {
     public ResponseEntity<ApiResponse<List<ParkingSpaceResponse>>> getSpaces() {
         List<ParkingSpaceResponse> spaces = parkingService.getSpaces();
         return ResponseEntity.ok(ApiResponse.success(spaces));
+    }
+
+    @GetMapping("/reservations/me")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<List<UserReservationResponse>>> getMyReservations(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        Long userId = resolveUserId(userDetails.getUsername());
+        List<UserReservationResponse> reservations = parkingService.getMyReservations(userId);
+        return ResponseEntity.ok(ApiResponse.success(reservations));
     }
 
     /**

@@ -3,16 +3,16 @@ spring:
     name: parking-api
 
   profiles:
-    active: local
+    active: ${SPRING_PROFILES_ACTIVE:local}
 
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:parking_db}
-    username: ${DB_USERNAME:postgres}
+    username: ${DB_USER:postgres}
     password: ${DB_PASSWORD:root}
     driver-class-name: org.postgresql.Driver
     hikari:
       minimum-idle: 5
-      maximum-pool-size: 20
+      maximum-pool-size: 30
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
@@ -51,14 +51,18 @@ redis:
 # JWT config
 app:
   jwt:
-    secret: ${JWT_SECRET:ThisIsAVeryLongSecretKeyForLocalDevelopmentAtLeast256BitsLong!}
+    secret: ${JWT_SECRET:${JWT_SECRET_KEY:ThisIsAVeryLongSecretKeyForLocalDevelopmentAtLeast256BitsLong!}}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}  # 24h
+    kms:
+      enabled: ${JWT_KMS_ENABLED:false}
+      key-version: ${JWT_KMS_KEY_VERSION:}
+      typ: ${JWT_TYP:JWT}
   parking:
     total-spaces: 80
     price-per-day: 10.00
     reservation-open-hour: 20  # 20:00
     lock-ttl-seconds: 10
-  local-mode: true  # Dùng mock thay vì GCP services
+  local-mode: ${APP_LOCAL_MODE:true}  # Dùng mock thay vì GCP services
 
 logging:
   level:

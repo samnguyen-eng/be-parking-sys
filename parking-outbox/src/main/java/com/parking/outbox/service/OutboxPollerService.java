@@ -49,11 +49,11 @@ public class OutboxPollerService {
                 event.setRetryCount(newRetryCount);
                 if (newRetryCount > MAX_RETRY) {
                     event.setStatus(OutboxStatus.DEAD);
-                    log.error("Outbox event id={} marked DEAD after {} retries. Error: {}",
-                            event.getId(), newRetryCount, e.getMessage());
+                    log.error("Outbox event id={} marked DEAD after {} retries.",
+                            event.getId(), newRetryCount, e);
                 } else {
-                    log.warn("Outbox event id={} publish failed (retry {}/{}). Error: {}",
-                            event.getId(), newRetryCount, MAX_RETRY, e.getMessage());
+                    log.warn("Outbox event id={} publish failed (retry {}/{}).",
+                            event.getId(), newRetryCount, MAX_RETRY, e);
                 }
             }
             outboxEventRepository.save(event);

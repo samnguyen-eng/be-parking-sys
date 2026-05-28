@@ -15,7 +15,7 @@ RUN mvn -pl parking-worker -am dependency:go-offline -q
 
 # Copy source and build
 COPY parking-worker/src parking-worker/src
-RUN mvn -pl parking-worker -am package -DskipTests -q
+RUN mvn -pl parking-worker -am package spring-boot:repackage -DskipTests -q
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM eclipse-temurin:21-jre-jammy
@@ -32,4 +32,4 @@ EXPOSE 8082
 
 ENV JAVA_OPTS="-XX:+UseZGC -XX:+ZGenerational -Xms128m -Xmx768m"
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=${PORT:-8082} -jar app.jar"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=${PORT:-8082} -Dspring.profiles.active=${SPRING_PROFILES_ACTIVE:-prod} -jar app.jar"]
