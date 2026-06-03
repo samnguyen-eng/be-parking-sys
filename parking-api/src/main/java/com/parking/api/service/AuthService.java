@@ -26,6 +26,7 @@ public class AuthService {
     private final AccountRepository accountRepository;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
+    private final ReservationCacheGuard reservationCacheGuard;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -57,7 +58,10 @@ public class AuthService {
                 .build();
         accountRepository.save(account);
 
-        String token = jwtService.generateToken(user.getUsername());
+        reservationCacheGuard.cacheUserPlate(user.getId(), user.getPlateNumber());
+        reservationCacheGuard.setBalanceCache(user.getId(), BigDecimal.ZERO);
+
+        String token = jwtService.generateToken(user.getUsername(), user.getId());
 
         return AuthResponse.builder()
                 .token(token)
@@ -78,7 +82,11 @@ public class AuthService {
 
         log.info("User logged in: {}", user.getUsername());
 
-        String token = jwtService.generateToken(user.getUsername());
+        reservationCacheGuard.cacheUserPlate(user.getId(), user.getPlateNumber());
+        accountRepository.findByUserId(user.getId())
+                .ifPresent(account -> reservationCacheGuard.setBalanceCache(user.getId(), account.getBalance()));
+
+        String token = jwtService.generateToken(user.getUsername(), user.getId());
 
         return AuthResponse.builder()
                 .token(token)

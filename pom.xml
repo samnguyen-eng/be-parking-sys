@@ -13,7 +13,6 @@
 
     <modules>
         <module>parking-api</module>
-        <module>parking-outbox</module>
         <module>parking-worker</module>
     </modules>
 

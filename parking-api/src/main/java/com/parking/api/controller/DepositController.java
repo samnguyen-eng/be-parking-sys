@@ -4,13 +4,12 @@ import com.parking.api.dto.request.DepositRequest;
 import com.parking.api.dto.response.ApiResponse;
 import com.parking.api.dto.response.BalanceResponse;
 import com.parking.api.dto.response.DepositResponse;
-import com.parking.api.exception.BusinessException;
 import com.parking.api.repository.UserRepository;
+import com.parking.api.security.SecurityUtils;
 import com.parking.api.service.DepositService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -32,7 +31,7 @@ public class DepositController {
             @Valid @RequestBody DepositRequest request,
             @AuthenticationPrincipal UserDetails userDetails) {
 
-        Long userId = resolveUserId(userDetails.getUsername());
+        Long userId = SecurityUtils.resolveUserId(userDetails, userRepository);
         log.info("Deposit request: userId={}, amount={}", userId, request.getAmount());
         DepositResponse response = depositService.deposit(userId, request);
         return ResponseEntity.ok(ApiResponse.success(response));
@@ -42,14 +41,8 @@ public class DepositController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<BalanceResponse>> getBalance(
             @AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = resolveUserId(userDetails.getUsername());
+        Long userId = SecurityUtils.resolveUserId(userDetails, userRepository);
         BalanceResponse response = depositService.getBalance(userId);
         return ResponseEntity.ok(ApiResponse.success(response));
-    }
-
-    private Long resolveUserId(String username) {
-        return userRepository.findByUsername(username)
-                .orElseThrow(() -> new BusinessException("User not found: " + username, HttpStatus.NOT_FOUND))
-                .getId();
     }
 }

@@ -24,6 +24,7 @@ public class UserInfoService {
     private static final long USER_INFO_TTL_SECONDS = 86400L;
 
     private final UserRepository userRepository;
+    private final ReservationCacheGuard reservationCacheGuard;
     private final RedissonClient redissonClient;
     private final ObjectMapper objectMapper;
 
@@ -34,7 +35,11 @@ public class UserInfoService {
         String cachedPayload = bucket.get();
         if (cachedPayload != null && !cachedPayload.isBlank()) {
             try {
-                return objectMapper.readValue(cachedPayload, UserInfoResponse.class);
+                UserInfoResponse cached = objectMapper.readValue(cachedPayload, UserInfoResponse.class);
+                if (cached.getUserId() != null && cached.getPlateNumber() != null) {
+                    reservationCacheGuard.cacheUserPlate(cached.getUserId(), cached.getPlateNumber());
+                }
+                return cached;
             } catch (JsonProcessingException ex) {
                 log.warn("Failed to deserialize user info cache for username={}", username, ex);
             }
@@ -44,9 +49,12 @@ public class UserInfoService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
 
         UserInfoResponse response = UserInfoResponse.builder()
+                .userId(user.getId())
                 .username(user.getUsername())
                 .plateNumber(user.getPlateNumber())
                 .build();
+
+        reservationCacheGuard.cacheUserPlate(user.getId(), user.getPlateNumber());
 
         try {
             bucket.set(objectMapper.writeValueAsString(response), USER_INFO_TTL_SECONDS, TimeUnit.SECONDS);

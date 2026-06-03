@@ -21,5 +21,7 @@ com/parking/worker/config/PubSubSubscriberConfig.class
 com/parking/worker/entity/Reservation.class
 com/parking/worker/config/RedisConfig.class
 com/parking/worker/entity/ReservationStatus.class
+com/parking/worker/service/SpaceExecutorRegistry.class
+com/parking/worker/service/OutOfOrderReservationException.class
 com/parking/worker/config/JacksonConfig.class
 com/parking/worker/entity/ParkingSpace.class

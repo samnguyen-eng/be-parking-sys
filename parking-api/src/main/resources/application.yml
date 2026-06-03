@@ -2,8 +2,18 @@ spring:
   application:
     name: parking-api
 
+  threads:
+    virtual:
+      enabled: false  # Disabled — Redisson locks incompatible with Virtual Threads
+
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
+
+  cloud:
+    gcp:
+      credentials:
+        enabled: ${GCP_CREDENTIALS_ENABLED:true}
+      project-id: ${GCP_PROJECT_ID:}
 
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:parking_db}
@@ -11,9 +21,9 @@ spring:
     password: ${DB_PASSWORD:root}
     driver-class-name: org.postgresql.Driver
     hikari:
-      minimum-idle: 5
-      maximum-pool-size: 30
-      connection-timeout: 30000
+      minimum-idle: 2
+      maximum-pool-size: 10       # 6 instances × 10 = 60 connections tổng → Cloud SQL chịu được
+      connection-timeout: 3000    # Fail fast 3s thay vì chờ 30s → tránh thread bị giữ lâu
       idle-timeout: 600000
       max-lifetime: 1800000
       pool-name: ParkingHikariPool
@@ -60,9 +70,19 @@ app:
   parking:
     total-spaces: 80
     price-per-day: 10.00
-    reservation-open-hour: 20  # 20:00
-    lock-ttl-seconds: 10
+    lock-ttl-seconds: 30
   local-mode: ${APP_LOCAL_MODE:true}  # Dùng mock thay vì GCP services
+  reserve:
+    cache-lock-wait-seconds: ${RESERVE_CACHE_LOCK_WAIT_SECONDS:0}
+    cache-lock-lease-seconds: ${RESERVE_CACHE_LOCK_LEASE_SECONDS:5}
+  pubsub:
+    topic: ${PUBSUB_TOPIC:reservation.created}
+    subscription: ${PUBSUB_SUBSCRIPTION:reservation-created-sub}
+    publish-timeout-seconds: ${PUBSUB_PUBLISH_TIMEOUT_SECONDS:5}
+    ordering-enabled: ${APP_PUBSUB_ORDERING_ENABLED:false}
+    warmup-enabled: ${APP_PUBSUB_WARMUP_ENABLED:true}
+    bootstrap-enabled: ${APP_PUBSUB_BOOTSTRAP_ENABLED:true}
+    enabled: ${APP_PUBSUB_ENABLED:true}
 
 logging:
   level:

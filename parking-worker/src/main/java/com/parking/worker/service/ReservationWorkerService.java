@@ -37,7 +37,11 @@ public class ReservationWorkerService {
     private static final Duration PROCESSING_LOCK_TTL = Duration.ofMinutes(2);
     private static final String SPACES_CACHE_KEY = "parking:spaces:all";
     private static final String AVAILABLE_SLOTS_KEY = "parking:spaces:available";
+    private static final String SPACE_CLAIM_KEY_PATTERN = "space:claim:%d:%s";
+    private static final String ACCOUNT_BALANCE_KEY_PATTERN = "account:balance:%d";
     private static final long SPACES_CACHE_TTL_SECONDS = 30L;
+    private static final long AVAILABLE_SLOTS_TTL_MINUTES = 30L;
+    private static final long ACCOUNT_BALANCE_TTL_HOURS = 24L;
 
     private final ParkingSpaceRepository parkingSpaceRepository;
     private final ReservationRepository reservationRepository;
@@ -109,10 +113,25 @@ public class ReservationWorkerService {
                 return;
             }
 
-            // 5. Lock the exact parking space reserved by parking-api
+            // 4.1 FCFS guard: only the earliest pending reservation for this slot/date may compete for winning.
+            Optional<Reservation> earliestPending = reservationRepository.findFirstPendingForSpaceAndDate(
+                    spaceId,
+                    reservation.getReservationDate(),
+                    ReservationStatus.PENDING.name()
+            );
+            if (earliestPending.isPresent() && !earliestPending.get().getId().equals(reservationId)) {
+                Long oldestPendingId = earliestPending.get().getId();
+                // Do not cancel out-of-order items; defer by throwing so subscriber nacks and retries later.
+                throw new OutOfOrderReservationException(
+                        "Out-of-order message. Older pending reservation id=" + oldestPendingId + " exists"
+                );
+            }
+
+            // 5. FCFS via queue: first PENDING wins the slot, others are rejected
             Optional<ParkingSpace> optSpace = parkingSpaceRepository.findByIdForUpdate(spaceId);
             if (optSpace.isEmpty()) {
-                compensateAndCancelReservation(reservation, "Space not found: " + spaceId);
+                // API did not deduct DB balance — cancel without refund
+                cancelReservationNoRefund(reservation, "Space not found: " + spaceId);
                 markProcessed(processedBucket);
                 completed = true;
                 invalidateSpacesCache();
@@ -121,25 +140,32 @@ public class ReservationWorkerService {
 
             ParkingSpace space = optSpace.get();
 
-            // 6. Ensure space is still RESERVED by API step
-            if (space.getStatus() != ParkingSpaceStatus.RESERVED) {
-                compensateAndCancelReservation(reservation, "Space is not reserved: " + space.getId());
-                markProcessed(processedBucket);
-                completed = true;
-                invalidateSpacesCache();
-                return;
+            if (space.getStatus() == ParkingSpaceStatus.AVAILABLE) {
+                // Deduct balance in DB here (API no longer deducts synchronously)
+                boolean balanceOk = deductAccountBalance(reservation.getUserId(), reservation.getAmount());
+                if (!balanceOk) {
+                    cancelReservationNoRefund(reservation, "Insufficient balance at confirmation time");
+                    log.info("Reservation id={} CANCELLED — insufficient balance for userId={}", reservationId, reservation.getUserId());
+                } else {
+                    space.setStatus(ParkingSpaceStatus.RESERVED);
+                    parkingSpaceRepository.save(space);
+                    reservation.setSpaceId(space.getId());
+                    reservation.setStatus(ReservationStatus.CONFIRMED);
+                    reservationRepository.save(reservation);
+                    removeFromAvailableCache(space.getId());
+                    updateSpacesCacheAsReserved(space.getId(), plateNumber);
+                    log.info("Reservation id={} CONFIRMED with space id={} (FCFS winner)", reservationId, space.getId());
+                }
+            } else {
+                // Slot taken — no refund needed since API did not deduct DB balance
+                cancelReservationNoRefund(reservation, "Slot is no longer available");
+                log.info("Reservation id={} CANCELLED — slot id={} already taken", reservationId, spaceId);
             }
 
-            // 7. Confirm the reservation
-            reservation.setSpaceId(space.getId());
-            reservation.setStatus(ReservationStatus.CONFIRMED);
-            reservationRepository.save(reservation);
-            updateSpacesCacheAsReserved(space.getId(), plateNumber);
-            log.info("Reservation id={} CONFIRMED with space id={}", reservationId, space.getId());
-
-            // 8. Mark as processed in Redis with TTL
             markProcessed(processedBucket);
             completed = true;
+        } catch (OutOfOrderReservationException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to process message id={}: {}", messageId, e.getMessage(), e);
             throw new RuntimeException("Failed to process message: " + e.getMessage(), e);
@@ -153,24 +179,60 @@ public class ReservationWorkerService {
         bucket.set("done", IDEMPOTENCY_TTL);
     }
 
-    private void compensateAndCancelReservation(Reservation reservation, String reason) {
-        log.warn("Compensating reservation id={}: {}", reservation.getId(), reason);
-        releaseSpace(reservation.getSpaceId());
+    /**
+     * Cancel reservation WITHOUT refunding — used when API has not deducted DB balance.
+     * Redis balance cache is restored by releasing the space claim in ReservationCacheGuard.
+     */
+    private void cancelReservationNoRefund(Reservation reservation, String reason) {
+        log.warn("Cancelling reservation id={} (no refund): {}", reservation.getId(), reason);
+        reservation.setStatus(ReservationStatus.CANCELLED);
+        reservationRepository.save(reservation);
+        maybeReleaseSpaceClaim(reservation);
+        invalidateSpacesCache();
+    }
+
+    /**
+     * Cancel reservation WITH refund — used when balance was already deducted from DB
+     * (e.g. max-retry compensation path where deduction happened in worker).
+     */
+    private void rejectReservation(Reservation reservation, String reason) {
+        log.warn("Rejecting reservation id={}: {}", reservation.getId(), reason);
         refundAccount(reservation.getUserId(), reservation.getAmount());
         reservation.setStatus(ReservationStatus.CANCELLED);
         reservationRepository.save(reservation);
-        updateSpacesCacheAsAvailable(reservation.getSpaceId());
+        maybeReleaseSpaceClaim(reservation);
+        invalidateSpacesCache();
     }
 
-    private void releaseSpace(Long spaceId) {
-        if (spaceId == null) {
-            return;
+    private void compensateAndCancelReservation(Reservation reservation, String reason) {
+        // On max-retry, balance was deducted in deductAccountBalance during a previous attempt
+        // that confirmed before failing. Use rejectReservation to refund.
+        cancelReservationNoRefund(reservation, reason);
+    }
+
+    /**
+     * Deduct balance from DB. Returns true if successful, false if insufficient funds.
+     */
+    private boolean deductAccountBalance(Long userId, BigDecimal amount) {
+        if (userId == null || amount == null) {
+            return false;
         }
-        parkingSpaceRepository.findByIdForUpdate(spaceId).ifPresent(space -> {
-            space.setStatus(ParkingSpaceStatus.AVAILABLE);
-            parkingSpaceRepository.save(space);
-            addSpaceBackToAvailableCache(spaceId);
-        });
+        return accountRepository.findByUserIdForUpdate(userId).map(account -> {
+            if (account.getBalance().compareTo(amount) < 0) {
+                return false;
+            }
+            BigDecimal newBalance = account.getBalance().subtract(amount);
+            account.setBalance(newBalance);
+            accountRepository.save(account);
+            // Update Redis balance cache after DB deduction
+            updateBalanceCache(userId, newBalance);
+            return true;
+        }).orElse(false);
+    }
+
+    private void updateBalanceCache(Long userId, BigDecimal balance) {
+        redissonClient.getBucket(String.format(ACCOUNT_BALANCE_KEY_PATTERN, userId))
+                .set(balance.toPlainString(), ACCOUNT_BALANCE_TTL_HOURS, TimeUnit.HOURS);
     }
 
     private void refundAccount(Long userId, BigDecimal amount) {
@@ -187,10 +249,37 @@ public class ReservationWorkerService {
         redissonClient.getBucket(SPACES_CACHE_KEY).delete();
     }
 
+    private void removeFromAvailableCache(Long spaceId) {
+        RScoredSortedSet<Long> availableSlots = redissonClient.getScoredSortedSet(AVAILABLE_SLOTS_KEY);
+        availableSlots.remove(spaceId);
+        availableSlots.expire(AVAILABLE_SLOTS_TTL_MINUTES, TimeUnit.MINUTES);
+    }
+
     private void addSpaceBackToAvailableCache(Long spaceId) {
         RScoredSortedSet<Long> availableSlots = redissonClient.getScoredSortedSet(AVAILABLE_SLOTS_KEY);
         availableSlots.add(spaceId.doubleValue(), spaceId);
-        availableSlots.expire(60, TimeUnit.SECONDS);
+        availableSlots.expire(AVAILABLE_SLOTS_TTL_MINUTES, TimeUnit.MINUTES);
+    }
+
+    /**
+     * Release API Redis slot claim when reservation is cancelled and space is still AVAILABLE in DB.
+     */
+    private void maybeReleaseSpaceClaim(Reservation reservation) {
+        Long spaceId = reservation.getSpaceId();
+        if (spaceId == null || reservation.getReservationDate() == null) {
+            return;
+        }
+        parkingSpaceRepository.findById(spaceId).ifPresent(space -> {
+            if (space.getStatus() == ParkingSpaceStatus.AVAILABLE) {
+                redissonClient.getBucket(spaceClaimKey(spaceId, reservation.getReservationDate())).delete();
+                addSpaceBackToAvailableCache(spaceId);
+                log.debug("Released space claim for spaceId={} date={}", spaceId, reservation.getReservationDate());
+            }
+        });
+    }
+
+    private String spaceClaimKey(Long spaceId, java.time.LocalDate reservationDate) {
+        return String.format(SPACE_CLAIM_KEY_PATTERN, spaceId, reservationDate);
     }
 
     private void updateSpacesCacheAsReserved(Long spaceId, String plateNumber) {

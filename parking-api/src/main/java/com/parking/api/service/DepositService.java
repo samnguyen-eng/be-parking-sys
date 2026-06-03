@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class DepositService {
 
     private final com.parking.api.repository.AccountRepository accountRepository;
+    private final ReservationCacheGuard reservationCacheGuard;
 
     @Transactional
     public DepositResponse deposit(Long userId, DepositRequest request) {
@@ -24,6 +25,7 @@ public class DepositService {
 
         account.setBalance(account.getBalance().add(request.getAmount()));
         account = accountRepository.save(account);
+        reservationCacheGuard.setBalanceCache(userId, account.getBalance());
 
         log.info("Deposited {} for userId={}. New balance: {}", request.getAmount(), userId, account.getBalance());
 
@@ -39,6 +41,8 @@ public class DepositService {
     public BalanceResponse getBalance(Long userId) {
         Account account = accountRepository.findByUserId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account not found for userId: " + userId));
+
+        reservationCacheGuard.setBalanceCache(userId, account.getBalance());
 
         return BalanceResponse.builder()
                 .accountId(account.getId())

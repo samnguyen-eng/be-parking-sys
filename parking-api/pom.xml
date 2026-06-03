@@ -63,6 +63,12 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
+        <!-- Spring Cloud GCP Pub/Sub -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>spring-cloud-gcp-starter-pubsub</artifactId>
+        </dependency>
+
         <!-- Redisson (Redis distributed lock) -->
         <dependency>
             <groupId>org.redisson</groupId>

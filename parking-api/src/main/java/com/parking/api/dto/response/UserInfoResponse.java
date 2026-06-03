@@ -11,6 +11,7 @@ import lombok.AllArgsConstructor;
 @AllArgsConstructor
 public class UserInfoResponse {
 
+    private Long userId;
     private String username;
     private String plateNumber;
 }

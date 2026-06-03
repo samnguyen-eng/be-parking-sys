@@ -1,6 +1,7 @@
 package com.parking.worker.config;
 
 import com.parking.worker.service.ReservationWorkerService;
+import com.parking.worker.service.OutOfOrderReservationException;
 import com.parking.worker.service.WorkerMessageRetryService;
 import com.google.cloud.pubsub.v1.Subscriber;
 import com.google.cloud.spring.pubsub.core.PubSubTemplate;
@@ -34,7 +35,7 @@ public class PubSubSubscriberConfig {
         subscriber = pubSubTemplate.subscribe(subscription, message -> {
             String messageId = message.getPubsubMessage().getMessageId();
 
-            // Skip warm-up messages published by parking-outbox on startup
+            // Skip warm-up messages published by parking-api on startup
             if ("true".equals(message.getPubsubMessage().getAttributesOrDefault(WARMUP_ATTR, null))) {
                 log.debug("Received warm-up message id={}, acking and skipping", messageId);
                 message.ack();
@@ -53,6 +54,10 @@ public class PubSubSubscriberConfig {
                 }
                 message.ack();
                 log.info("Worker processed message id={} successfully; acked", messageId);
+            } catch (OutOfOrderReservationException ex) {
+                // Defer only: do not consume business retry budget for "not-your-turn-yet" messages.
+                message.nack();
+                log.info("Deferred out-of-order message id={} for later retry: {}", messageId, ex.getMessage());
             } catch (Exception ex) {
                 log.error("Worker failed for message id={}: {}", messageId, ex.getMessage(), ex);
                 try {

@@ -5,13 +5,12 @@ import com.parking.api.dto.response.ApiResponse;
 import com.parking.api.dto.response.ParkingSpaceResponse;
 import com.parking.api.dto.response.ReserveResponse;
 import com.parking.api.dto.response.UserReservationResponse;
-import com.parking.api.exception.BusinessException;
+import com.parking.api.security.SecurityUtils;
 import com.parking.api.repository.UserRepository;
 import com.parking.api.service.ParkingService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -43,7 +42,7 @@ public class ParkingController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<UserReservationResponse>>> getMyReservations(
             @AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = resolveUserId(userDetails.getUsername());
+        Long userId = resolveUserId(userDetails);
         List<UserReservationResponse> reservations = parkingService.getMyReservations(userId);
         return ResponseEntity.ok(ApiResponse.success(reservations));
     }
@@ -58,16 +57,13 @@ public class ParkingController {
             @Valid @RequestBody ReserveRequest request,
             @AuthenticationPrincipal UserDetails userDetails) {
 
-        Long userId = resolveUserId(userDetails.getUsername());
+        Long userId = resolveUserId(userDetails);
         log.info("Reserve request: userId={}, date={}", userId, request.getReservationDate());
         ReserveResponse response = parkingService.reserve(userId, request);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Reservation created successfully", response));
+        return ResponseEntity.ok(ApiResponse.success("Reservation request accepted", response));
     }
 
-    private Long resolveUserId(String username) {
-        return userRepository.findByUsername(username)
-                .orElseThrow(() -> new BusinessException("User not found: " + username, HttpStatus.NOT_FOUND))
-                .getId();
+    private Long resolveUserId(UserDetails userDetails) {
+        return SecurityUtils.resolveUserId(userDetails, userRepository);
     }
 }

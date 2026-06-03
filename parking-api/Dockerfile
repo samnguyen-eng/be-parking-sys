@@ -7,7 +7,6 @@ WORKDIR /build
 # Copy ALL pom.xml files so Maven reactor resolves correctly
 COPY pom.xml .
 COPY parking-api/pom.xml     parking-api/pom.xml
-COPY parking-outbox/pom.xml  parking-outbox/pom.xml
 COPY parking-worker/pom.xml  parking-worker/pom.xml
 
 # Pre-download dependencies (layer cache — only invalidated when pom.xml changes)

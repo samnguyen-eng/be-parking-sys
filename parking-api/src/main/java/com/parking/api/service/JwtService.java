@@ -67,23 +67,45 @@ public class JwtService {
     }
 
     public String generateToken(final String username) {
+        return generateToken(username, null);
+    }
+
+    public String generateToken(final String username, final Long userId) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expirationMs);
 
         if (isKmsActive()) {
             try {
-                return generateTokenWithKms(username, now.toInstant(), expiry.toInstant());
+                return generateTokenWithKms(username, userId, now.toInstant(), expiry.toInstant());
             } catch (Exception ex) {
                 throw new RuntimeException("Failed to generate JWT with KMS", ex);
             }
         }
 
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(username)
                 .issuedAt(now)
-                .expiration(expiry)
-                .signWith(getSigningKey())
-                .compact();
+                .expiration(expiry);
+        if (userId != null) {
+            builder.claim("uid", userId);
+        }
+        return builder.signWith(getSigningKey()).compact();
+    }
+
+    public Long extractUserId(final String token) {
+        Claims claims = isKmsActive() ? parseClaimsWithKms(token) : parseClaims(token);
+        Object uid = claims.get("uid");
+        if (uid == null) {
+            return null;
+        }
+        if (uid instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(uid.toString());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     public String extractUsername(final String token) {
@@ -131,11 +153,15 @@ public class JwtService {
                 .getPayload();
     }
 
-    private String generateTokenWithKms(final String username, final Instant issuedAt, final Instant expiresAt)
+    private String generateTokenWithKms(final String username, final Long userId,
+                                        final Instant issuedAt, final Instant expiresAt)
             throws IOException {
         String header = toBase64UrlJson(Map.of("alg", "RS256", "typ", jwtType));
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("sub", username);
+        if (userId != null) {
+            payload.put("uid", userId);
+        }
         payload.put("iat", issuedAt.getEpochSecond());
         payload.put("exp", expiresAt.getEpochSecond());
         String body = toBase64UrlJson(payload);

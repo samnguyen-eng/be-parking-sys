@@ -12,8 +12,11 @@
         </processorPath>
         <module name="parking-worker" />
         <module name="parking-api" />
-        <module name="parking-outbox" />
       </profile>
     </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="be-parking-sys" target="21" />
+      <module name="parking-outbox" target="21" />
+    </bytecodeTargetLevel>
   </component>
 </project>

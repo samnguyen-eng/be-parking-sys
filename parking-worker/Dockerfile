@@ -7,7 +7,6 @@ WORKDIR /build
 # Copy ALL pom.xml files so Maven reactor resolves correctly
 COPY pom.xml .
 COPY parking-api/pom.xml     parking-api/pom.xml
-COPY parking-outbox/pom.xml  parking-outbox/pom.xml
 COPY parking-worker/pom.xml  parking-worker/pom.xml
 
 # Pre-download dependencies (layer cache — only invalidated when pom.xml changes)
@@ -32,4 +31,4 @@ EXPOSE 8082
 
 ENV JAVA_OPTS="-XX:+UseZGC -XX:+ZGenerational -Xms128m -Xmx768m"
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=${PORT:-8082} -Dspring.profiles.active=${SPRING_PROFILES_ACTIVE:-prod} -jar app.jar"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=${PORT:-8082} -Dspring.profiles.active=${SPRING_PROFILES_ACTIVE:-cloudrun} -jar app.jar"]

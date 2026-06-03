@@ -1,0 +1,15 @@
+spring:
+  cloud:
+    gcp:
+      credentials:
+        enabled: false
+      project-id: ${GCP_PROJECT_ID:local-project}
+      pubsub:
+        emulator-host: ${PUBSUB_EMULATOR_HOST:localhost:8085}
+
+app:
+  local-mode: true
+  pubsub:
+    enabled: true
+    bootstrap-enabled: true
+    warmup-enabled: false
