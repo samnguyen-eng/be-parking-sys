@@ -43,6 +43,7 @@ public class PubSubPushController {
     private final ReservationWorkerService workerService;
     private final SpaceExecutorRegistry executorRegistry;
     private final ObjectMapper objectMapper;
+    private final com.parking.worker.service.WorkerMessageRetryService retryService;
 
     /**
      * Timeout for waiting on the executor task result.
@@ -106,13 +107,20 @@ public class PubSubPushController {
         // This preserves Pub/Sub retry semantics: failures result in 5xx → NACK → redeliver.
         try {
             future.get(taskTimeoutSeconds, TimeUnit.SECONDS);
+            // Clear retry record on success
+            retryService.clearOnSuccess(payload, messageId);
             return ResponseEntity.ok().build();
         } catch (TimeoutException e) {
             future.cancel(true);
             log.error("Processing timed out for message id={} spaceId={}", messageId, spaceId);
+            retryService.recordFailure(messageId, payload, new RuntimeException("Task timed out after " + taskTimeoutSeconds + "s"));
             return ResponseEntity.internalServerError().build();
         } catch (ExecutionException e) {
-            log.error("Processing failed for message id={} spaceId={}: {}", messageId, spaceId, e.getCause().getMessage(), e.getCause());
+            Throwable cause = e.getCause();
+            log.error("Processing failed for message id={} spaceId={}: {}", messageId, spaceId,
+                    cause != null ? cause.getMessage() : e.getMessage(), cause != null ? cause : e);
+            retryService.recordFailure(messageId, payload,
+                    cause instanceof Exception ex ? ex : new RuntimeException(cause));
             return ResponseEntity.internalServerError().build();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

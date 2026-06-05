@@ -41,6 +41,7 @@ public class ParkingService {
     private final com.parking.api.repository.ParkingSpaceRepository parkingSpaceRepository;
     private final ReservationCacheGuard reservationCacheGuard;
     private final ReservationCommandService reservationCommandService;
+    private final ReservationExpiryService reservationExpiryService;
     private final ObjectMapper objectMapper;
 
     public ReserveResponse reserve(Long userId, ReserveRequest request) {
@@ -131,8 +132,10 @@ public class ParkingService {
         return response;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<UserReservationResponse> getMyReservations(Long userId) {
+        reservationExpiryService.expireReservationsForUser(userId);
+
         return reservationRepository.findByUserIdWithSpace(userId)
                 .stream()
                 .map(reservation -> UserReservationResponse.builder()

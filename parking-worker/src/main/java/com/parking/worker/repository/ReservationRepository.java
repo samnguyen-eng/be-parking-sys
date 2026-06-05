@@ -32,4 +32,16 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             @Param("reservationDate") LocalDate reservationDate,
             @Param("status") String status
     );
+
+    @Query("""
+            SELECT CASE WHEN COUNT(r) > 0 THEN true ELSE false END
+            FROM Reservation r
+            WHERE r.spaceId = :spaceId
+              AND r.status = com.parking.worker.entity.ReservationStatus.CONFIRMED
+              AND r.id <> :excludeId
+              AND r.isDeleted = false
+            """)
+    boolean existsConfirmedForSpaceExcluding(
+            @Param("spaceId") Long spaceId,
+            @Param("excludeId") Long excludeId);
 }

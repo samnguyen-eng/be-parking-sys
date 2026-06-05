@@ -4,7 +4,7 @@ spring:
 
   threads:
     virtual:
-      enabled: true  # Virtual Threads — Tomcat xử lý unlimited concurrent request
+      enabled: false  # Disabled — Redisson locks incompatible with Virtual Threads
 
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
@@ -22,8 +22,8 @@ spring:
     driver-class-name: org.postgresql.Driver
     hikari:
       minimum-idle: 2
-      maximum-pool-size: 10       # 6 instances × 10 = 60 connections tổng → Cloud SQL chịu được
-      connection-timeout: 3000    # Fail fast 3s thay vì chờ 30s → tránh thread bị giữ lâu
+      maximum-pool-size: 10       # 6 instances × 10 = 60 connections → Cloud SQL safe
+      connection-timeout: 3000
       idle-timeout: 600000
       max-lifetime: 1800000
       pool-name: ParkingHikariPool

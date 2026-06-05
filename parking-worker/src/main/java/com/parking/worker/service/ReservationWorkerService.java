@@ -205,9 +205,49 @@ public class ReservationWorkerService {
     }
 
     private void compensateAndCancelReservation(Reservation reservation, String reason) {
-        // On max-retry, balance was deducted in deductAccountBalance during a previous attempt
-        // that confirmed before failing. Use rejectReservation to refund.
+        restoreSpaceToAvailableOnCompensation(reservation);
         cancelReservationNoRefund(reservation, reason);
+    }
+
+    /**
+     * Max-retry compensation: set DB space back to AVAILABLE when safe,
+     * then release Redis claim and refresh availability caches.
+     */
+    private void restoreSpaceToAvailableOnCompensation(Reservation reservation) {
+        Long spaceId = reservation.getSpaceId();
+        if (spaceId == null || reservation.getReservationDate() == null) {
+            return;
+        }
+
+        Optional<ParkingSpace> optSpace = parkingSpaceRepository.findByIdForUpdate(spaceId);
+        if (optSpace.isEmpty()) {
+            log.warn("Compensation skip DB restore — space id={} not found", spaceId);
+            releaseSpaceClaimAndCaches(spaceId, reservation.getReservationDate());
+            return;
+        }
+
+        if (reservationRepository.existsConfirmedForSpaceExcluding(spaceId, reservation.getId())) {
+            log.info("Compensation skip DB restore — space id={} held by another CONFIRMED reservation", spaceId);
+            releaseSpaceClaimAndCaches(spaceId, reservation.getReservationDate());
+            return;
+        }
+
+        ParkingSpace space = optSpace.get();
+        if (space.getStatus() != ParkingSpaceStatus.AVAILABLE) {
+            space.setStatus(ParkingSpaceStatus.AVAILABLE);
+            parkingSpaceRepository.save(space);
+            log.warn("Compensation restored space id={} to AVAILABLE in DB", spaceId);
+        }
+
+        releaseSpaceClaimAndCaches(spaceId, reservation.getReservationDate());
+        updateSpacesCacheAsAvailable(spaceId);
+    }
+
+    private void releaseSpaceClaimAndCaches(Long spaceId, java.time.LocalDate reservationDate) {
+        redissonClient.getBucket(spaceClaimKey(spaceId, reservationDate)).delete();
+        addSpaceBackToAvailableCache(spaceId);
+        log.debug("Released space claim and refreshed available cache for spaceId={} date={}",
+                spaceId, reservationDate);
     }
 
     /**
@@ -240,8 +280,10 @@ public class ReservationWorkerService {
             return;
         }
         accountRepository.findByUserIdForUpdate(userId).ifPresent(account -> {
-            account.setBalance(account.getBalance().add(amount));
+            BigDecimal newBalance = account.getBalance().add(amount);
+            account.setBalance(newBalance);
             accountRepository.save(account);
+            updateBalanceCache(userId, newBalance);
         });
     }
 

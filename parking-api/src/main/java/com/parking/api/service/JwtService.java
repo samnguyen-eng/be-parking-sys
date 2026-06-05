@@ -8,7 +8,8 @@ import com.google.cloud.kms.v1.GetPublicKeyRequest;
 import com.google.cloud.kms.v1.KeyManagementServiceClient;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
-import lombok.RequiredArgsConstructor;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -29,8 +30,11 @@ import java.util.Map;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class JwtService {
+
+    // Cached KMS client and public key — initialized once at startup
+    private KeyManagementServiceClient kmsClient;
+    private PublicKey cachedPublicKey;
 
     @Value("${app.jwt.secret}")
     private String secret;
@@ -61,6 +65,28 @@ public class JwtService {
 
     @Value("${app.jwt.kms.typ:JWT}")
     private String jwtType;
+
+    @PostConstruct
+    public void init() {
+        if (isKmsActive()) {
+            try {
+                kmsClient = KeyManagementServiceClient.create();
+                cachedPublicKey = loadPublicKeyFromKms();
+                log.info("KMS client initialized and public key cached successfully");
+            } catch (Exception ex) {
+                log.error("Failed to initialize KMS client: {}", ex.getMessage(), ex);
+                throw new RuntimeException("KMS initialization failed", ex);
+            }
+        }
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        if (kmsClient != null) {
+            kmsClient.close();
+            log.info("KMS client closed");
+        }
+    }
 
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
@@ -139,7 +165,7 @@ public class JwtService {
 
     private Claims parseClaimsWithKms(final String token) {
         return Jwts.parser()
-                .verifyWith(loadPublicKeyFromKms())
+                .verifyWith(cachedPublicKey)  // use cached key — no KMS call
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
@@ -173,7 +199,7 @@ public class JwtService {
     }
 
     private byte[] signWithKms(byte[] signingInput) throws IOException {
-        try (KeyManagementServiceClient kmsClient = KeyManagementServiceClient.create()) {
+        try {
             byte[] digestBytes = MessageDigest.getInstance("SHA-256").digest(signingInput);
             return kmsClient.asymmetricSign(
                             AsymmetricSignRequest.newBuilder()
@@ -190,7 +216,7 @@ public class JwtService {
     }
 
     private PublicKey loadPublicKeyFromKms() {
-        try (KeyManagementServiceClient kmsClient = KeyManagementServiceClient.create()) {
+        try {
             String pem = kmsClient.getPublicKey(GetPublicKeyRequest.newBuilder()
                             .setName(resolveJwtSigningKeyVersionName(kmsClient))
                             .build())

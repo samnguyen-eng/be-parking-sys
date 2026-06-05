@@ -1,12 +1,15 @@
 package com.parking.api.repository;
 
 import com.parking.api.entity.Reservation;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,4 +49,27 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
            "  GROUP BY r2.space.id" +
            ")")
     List<Reservation> findLatestActiveBySpaceIds(@Param("spaceIds") List<Long> spaceIds);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM Reservation r " +
+           "LEFT JOIN FETCH r.space s " +
+           "WHERE r.user.id = :userId " +
+           "AND r.expiresAt <= :now " +
+           "AND r.status IN (com.parking.api.entity.ReservationStatus.PENDING, com.parking.api.entity.ReservationStatus.CONFIRMED) " +
+           "AND r.isDeleted = false")
+    List<Reservation> findExpiredByUserIdForUpdate(
+            @Param("userId") Long userId,
+            @Param("now") LocalDateTime now);
+
+    @Query("""
+            SELECT CASE WHEN COUNT(r) > 0 THEN true ELSE false END
+            FROM Reservation r
+            WHERE r.space.id = :spaceId
+              AND r.status = com.parking.api.entity.ReservationStatus.CONFIRMED
+              AND r.id <> :excludeId
+              AND r.isDeleted = false
+            """)
+    boolean existsConfirmedForSpaceExcluding(
+            @Param("spaceId") Long spaceId,
+            @Param("excludeId") Long excludeId);
 }

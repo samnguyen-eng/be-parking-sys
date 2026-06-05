@@ -12,7 +12,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Manages a dedicated single-thread VirtualThread executor per parking spaceId.
+ * Manages a dedicated single-thread Platform Thread executor per parking spaceId.
+ *
+ * <p>Uses Platform Threads (not Virtual Threads) because Redisson distributed locks
+ * track ownership by thread-id. Virtual Threads can change carrier thread between
+ * suspensions, causing IllegalMonitorStateException when unlocking.
  *
  * <p>This ensures that all messages for a given space are processed
  * sequentially within a single Cloud Run instance, preserving FCFS ordering
@@ -26,19 +30,19 @@ import java.util.concurrent.TimeUnit;
 public class SpaceExecutorRegistry {
 
     /**
-     * One single-threaded VirtualThread executor per spaceId.
+     * One single-threaded Platform Thread executor per spaceId.
      * ConcurrentHashMap + computeIfAbsent ensures at-most-one executor created per key.
      */
     private final ConcurrentHashMap<Long, ExecutorService> executors = new ConcurrentHashMap<>();
 
     /**
      * Returns the executor for the given spaceId, creating one if it does not yet exist.
-     * The executor uses a named VirtualThread factory for easier debugging.
+     * Uses Platform Thread factory — stable thread-id required for Redisson lock correctness.
      */
     public ExecutorService getOrCreate(Long spaceId) {
         return executors.computeIfAbsent(spaceId, id ->
                 Executors.newSingleThreadExecutor(
-                        Thread.ofVirtual()
+                        Thread.ofPlatform()
                               .name("space-" + id + "-worker-", 0)
                               .factory()
                 )

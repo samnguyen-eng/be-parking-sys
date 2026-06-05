@@ -39,6 +39,7 @@ com/parking/api/service/AuthService.class
 com/parking/api/controller/UserController.class
 com/parking/api/entity/Reservation$ReservationBuilder.class
 com/parking/api/dto/response/ReserveResponse.class
+com/parking/api/service/ReservationExpiryService.class
 com/parking/api/config/RedisConfig.class
 com/parking/api/config/SecurityConfig.class
 com/parking/api/security/UserDetailsServiceImpl.class

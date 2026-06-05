@@ -25,6 +25,9 @@ public class PubSubSubscriberConfig {
     @Value("${app.pubsub.subscription:reservation-created-sub}")
     private String subscription;
 
+    @Value("${app.pubsub.pull-enabled:false}")
+    private boolean pullEnabled;
+
     private Subscriber subscriber;
 
     /** Attribute key published by the outbox warm-up. Messages carrying this are acked and skipped. */
@@ -32,6 +35,11 @@ public class PubSubSubscriberConfig {
 
     @PostConstruct
     public void subscribe() {
+        if (!pullEnabled) {
+            log.info("PULL mode disabled (PUBSUB_PULL_ENABLED=false) — using PUSH mode via HTTP endpoint.");
+            return;
+        }
+        log.info("PULL mode enabled for subscription={}", subscription);
         subscriber = pubSubTemplate.subscribe(subscription, message -> {
             String messageId = message.getPubsubMessage().getMessageId();
 

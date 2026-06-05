@@ -30,6 +30,9 @@ USER appuser
 EXPOSE 8080
 
 # Cloud Run injects PORT env var; we pass it via JAVA_OPTS
-ENV JAVA_OPTS="-XX:+UseZGC -XX:+ZGenerational -Xms256m -Xmx1g"
+# Container-aware JVM settings — no fixed -Xmx, let JVM use MaxRAMPercentage
+# G1GC: better fit for small containers vs ZGC (ZGC optimal for large heaps)
+# MaxRAMPercentage=55 → heap ~1.1Gi of 2Gi, leaving ~900Mi for native/gRPC/threads
+ENV JAVA_OPTS="-XX:+UseG1GC -XX:MaxRAMPercentage=55 -XX:InitialRAMPercentage=25 -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=96m -Xss512k -XX:+ExitOnOutOfMemoryError"
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Dserver.port=${PORT:-8080} -jar app.jar"]

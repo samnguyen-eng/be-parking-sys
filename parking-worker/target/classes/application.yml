@@ -18,7 +18,7 @@ spring:
     hikari:
       minimum-idle: 2
       maximum-pool-size: 30
-      connection-timeout: 30000
+      connection-timeout: 1000   # 1s — 80 messages × ~200ms processing → max wait ~400ms < 1s
       idle-timeout: 600000
       max-lifetime: 1800000
       pool-name: WorkerHikariPool
@@ -52,6 +52,7 @@ redis:
 app:
   pubsub:
     subscription: ${PUBSUB_SUBSCRIPTION:reservation-created-sub}
+    pull-enabled: ${PUBSUB_PULL_ENABLED:false}  # false = PUSH mode, true = PULL mode
 
 logging:
   level:
