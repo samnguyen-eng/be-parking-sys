@@ -71,7 +71,7 @@ app:
     total-spaces: 80
     price-per-day: 10.00
     lock-ttl-seconds: 30
-  local-mode: ${APP_LOCAL_MODE:true}  # Dùng mock thay vì GCP services
+  local-mode: ${APP_LOCAL_MODE:true}  # Use mock instead of GCP services
   reserve:
     cache-lock-wait-seconds: ${RESERVE_CACHE_LOCK_WAIT_SECONDS:0}
     cache-lock-lease-seconds: ${RESERVE_CACHE_LOCK_LEASE_SECONDS:5}
